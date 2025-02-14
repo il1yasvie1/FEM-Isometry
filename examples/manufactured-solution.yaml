@@ -1,0 +1,24 @@
+mesh:
+  type: SquareMesh
+  parameters:
+    nx: 20
+    ny: 20
+    L: 1
+
+sub_domain: [1, 2]
+f: ['alpha*sin(x[0])', '0', '-alpha*cos(x[0])']
+g: ['(1-alpha)*x[0] + alpha*sin(x[0])', 'x[1]', 'alpha*(1-cos(x[0]))']
+phi: [['1-alpha + alpha*cos(x[0])', '0'], ['0', '1'], ['1-alpha + alpha*sin(x[0])', '0']]
+alpha: 'list(np.arange(0, 1, 0.02)) + [1]'
+
+# mesh:
+#   type: SquareMesh
+#   parameters:
+#     nx: 20
+#     ny: 20
+#     L: 1
+
+# sub_domain: [1, 2, 3 ,4]
+# f: ['np.pi**3*sin(np.pi*x[0]/4)/64', '0', '-np.pi**3*cos(np.pi*x[0]/4)/64']
+# g: ['4*sin(np.pi*x[0]/4)/np.pi' , 'x[1]', '1 - 4*cos(np.pi*x[0]/4)/np.pi']
+# phi: [['cos(np.pi*x[0]/4)', '0'], ['0', '1'], ['sin(np.pi*x[0]/4)', '0']]

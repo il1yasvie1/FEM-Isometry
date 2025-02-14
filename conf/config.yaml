@@ -1,0 +1,15 @@
+mesh:
+  type: RectangleMesh
+  parameters:
+    nx: 10
+    ny: 10
+    Lx: 4
+    Ly: 1
+
+sub_domain: [1, 2]
+f: ['0', '0', '2.5e-2']
+g: ['conditional(lt(x[0], 2), x[0] + alpha, x[0] - alpha)', 'x[1]', '0']
+phi: [['1', '0'], ['0', '1'], ['0', '0']]
+
+alpha: 'list(np.arange(0, 1.4, 0.04))+[1.4]'
+

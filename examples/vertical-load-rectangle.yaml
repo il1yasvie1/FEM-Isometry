@@ -1,0 +1,12 @@
+mesh:
+  type: RectangleMesh
+  parameters:
+    nx: 10
+    ny: 10
+    Lx: 4
+    Ly: 1
+
+sub_domain: [1]
+f: ['0', '0', '2.5e-2']
+g: ['x[0]', 'x[1]', '0']
+phi: [['1', '0'], ['0', '1'], ['0', '0']]

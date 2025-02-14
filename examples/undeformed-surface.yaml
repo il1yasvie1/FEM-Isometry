@@ -1,0 +1,11 @@
+mesh:
+  type: SquareMesh
+  parameters:
+    nx: 10
+    ny: 10
+    L: 1
+
+sub_domain: [1, 2, 3, 4]
+f: ['0', '0', '0']
+g: ['x[0]', 'x[1]', '0']
+phi: [['1', '0'], ['0', '1'], ['0', '0']]

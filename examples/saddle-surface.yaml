@@ -1,0 +1,13 @@
+mesh:
+  type: SquareMesh
+  parameters:
+    nx: 20
+    ny: 20
+    L: 1
+
+sub_domain: [1]
+f: ['0', '0', '-alpha']
+g: ['x[0]', 'x[1]', '0.5*((x[0]-0.5)**2 - (x[1]-0.5)**2)']
+phi: [['1', '0'], ['0', '1'], ['x[0]-0.5', '-x[1]+0.5']]
+
+alpha: 'list(np.arange(0, 50, 3)) + [50]'
