@@ -1,9 +1,9 @@
 # flake8: noqa: F403, F405
 import numpy as np
 from .utils import *
-from firedrake import *
 import os
 os.environ["OMP_NUM_THREADS"] = "1"
+from firedrake import *
 
 
 q_degree = 2
@@ -13,9 +13,8 @@ ds = ds(metadata={'quadrature_degree': q_degree})
 
 
 class IsometricBendingProblem:
-    def __init__(self, cfg):
+    def __init__(self, cfg, from_dict=True):
         self.config = cfg
-
         self.continuation = cfg.get('continuation', False)
         self.on_f, self.on_g, self.on_phi = [None] * 3
         if self.continuation:
@@ -23,6 +22,8 @@ class IsometricBendingProblem:
             self.on_g = cfg['continuation'].get('g0', False)
             self.on_phi = cfg['continuation'].get('phi0', False)
             self.tangent = cfg['continuation'].get('tangent', False)
+
+        self.r = Constant(cfg.get('r', 50))
 
         self.nitsche = cfg.get('nitsche', False)
         if self.nitsche:
@@ -32,26 +33,26 @@ class IsometricBendingProblem:
         if self.isRegularised:
             self.beta = cfg['isRegularised'].get('beta', Constant(1e-3))
 
-        self.r = Constant(cfg.get('r', 50))
-
-        self.mesh = self.create_mesh()
+        self.mesh = self.create_mesh(from_dict)
         self.function_space = self.create_function_space()
-
-        self._get_ufl_expr()
+        self._get_ufl_expr(from_dict)
         self._interpolate()
 
-    def create_mesh(self):
-        supported_mesh_types = {
-            'RectangleMesh': RectangleMesh,
-            'SquareMesh': SquareMesh,
-        }
-        mesh_cfg = self.config['mesh']
-        mesh_type = mesh_cfg['type']
-        if mesh_type in supported_mesh_types:
-            mesh = supported_mesh_types[mesh_type](**mesh_cfg['parameters'])
-            return mesh
+    def create_mesh(self, from_dict):
+        if from_dict:
+            return self.config['mesh']
         else:
-            raise NotImplementedError
+            supported_mesh_types = {
+                'RectangleMesh': RectangleMesh,
+                'SquareMesh': SquareMesh,
+            }
+            mesh_cfg = self.config['mesh']
+            mesh_type = mesh_cfg['type']
+            if mesh_type in supported_mesh_types:
+                mesh = supported_mesh_types[mesh_type](**mesh_cfg['parameters'])
+                return mesh
+            else:
+                raise NotImplementedError
 
     def create_function_space(self):
         self.family = self.config['function_space']['family']
@@ -73,29 +74,44 @@ class IsometricBendingProblem:
         Z = V * W * P
         return Z
 
-    def _get_ufl_expr(self):
-        x = SpatialCoordinate(self.mesh)
-        self.f_expr = as_vector([eval(expr) for expr in self.config['f']])
-        self.g_expr = as_vector([eval(expr) for expr in self.config['g']])
-        self.phi_expr = as_matrix([[eval(expr) for expr in row]
-                                  for row in self.config['phi']])
-        self.sub_domain = tuple(self.config['sub_domain'])
+    def _get_ufl_expr(self, from_dict):
+        if from_dict:
+            self.f_expr = self.config['f']
+            self.g_expr = self.config['g']
+            self.phi_expr = self.config['phi']
+            self.sub_domain = self.config['sub_domain']
+            if self.continuation:
+                continuation_cfg = self.config['continuation']
+                self.values = continuation_cfg['alpha']
+                if self.on_f:
+                    self.f0_expr = as_vector(self.config['f0'])
+                if self.on_g:
+                    self.g0_expr = as_vector(self.config['g0'])
+                if self.on_phi:
+                    self.phi0_expr = as_matrix(self.config['phi0'])
+        else:
+            x = SpatialCoordinate(self.mesh)
+            self.f_expr = as_vector([eval(expr) for expr in self.config['f']])
+            self.g_expr = as_vector([eval(expr) for expr in self.config['g']])
+            self.phi_expr = as_matrix([[eval(expr) for expr in row]
+                                    for row in self.config['phi']])
+            self.sub_domain = tuple(self.config['sub_domain'])
 
-        if self.continuation:
-            continuation_cfg = self.config['continuation']
-            self.values = eval(continuation_cfg['alpha'])
+            if self.continuation:
+                continuation_cfg = self.config['continuation']
+                self.values = eval(continuation_cfg['alpha'])
 
-            if self.on_f:
-                self.f0_expr = as_vector([eval(expr)
-                                         for expr in continuation_cfg['f0']])
+                if self.on_f:
+                    self.f0_expr = as_vector([eval(expr)
+                                            for expr in continuation_cfg['f0']])
 
-            if self.on_g:
-                self.g0_expr = as_vector([eval(expr)
-                                         for expr in continuation_cfg['g0']])
+                if self.on_g:
+                    self.g0_expr = as_vector([eval(expr)
+                                            for expr in continuation_cfg['g0']])
 
-            if self.on_phi:
-                self.phi0_expr = as_matrix(
-                    [[eval(expr) for expr in row] for row in continuation_cfg['phi0']])
+                if self.on_phi:
+                    self.phi0_expr = as_matrix(
+                        [[eval(expr) for expr in row] for row in continuation_cfg['phi0']])
 
     def _interpolate(self):
         f_cg = Function(self.V_cg).interpolate(self.f_expr)
