@@ -1,0 +1,25 @@
+mesh:
+  type: SquareMesh
+  parameters:
+    nx: 20
+    ny: 20
+    L: 1
+
+function_space:
+  family: 'CG'
+  degree: 2
+
+sub_domain: [1]
+f: ['0', '0', '-10']
+g: ['x[0]', 'x[1]', '0.5*((x[0]-0.5)**2 - (x[1]-0.5)**2)']
+phi: [['1', '0'], ['0', '1'], ['x[0]-0.5', '-x[1]+0.5']]
+
+continuation:
+  f0: ['0', '0', '-2.5e-2']
+  g0: ['x[0]', 'x[1]', '0']
+  phi0: [['1', '0'], ['0', '1'], ['0', '0']]
+  alpha: 'list(np.arange(0.001, 1, 0.05))+[1]'
+  tangent: True
+
+isRegularised:
+  beta: 1e-3

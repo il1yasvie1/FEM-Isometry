@@ -1,6 +1,6 @@
-from src.problem import IsometricBendingProblem
+from isometric_bending_solver.problem import IsometricBendingProblem
 from firedrake import *
-from src.utils import plot_deformation, compute_isometry_defect, compute_surface_area
+from isometric_bending_solver.utils import plot_deformation, compute_isometry_defect, compute_surface_area
 import hydra
 
 

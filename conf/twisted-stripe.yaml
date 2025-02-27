@@ -1,0 +1,24 @@
+mesh:
+  type: RectangleMesh
+  parameters:
+    nx: 50
+    ny: 5
+    Lx: 10
+    Ly: 1
+
+function_space:
+  family: 'CG'
+  degree: 2
+
+sub_domain: [1, 2]
+f: ['0', '0', '0']
+g: ['x[0]', '0.5 + (x[1]-0.5)*cos(np.pi/2)', '0.5 + (x[1]-0.5)*sin(np.pi/2*conditional(lt(x[0], 5), 1, -1))']
+phi: [['1', '0'], ['0', 'cos(np.pi/2)'], ['0', 'sin(np.pi/2*conditional(lt(x[0], 5), 1, -1))']]
+
+continuation:
+  g0: ['x[0]', 'x[1]', '0']
+  phi0: [['1', '0'], ['0', '1'], ['0', '0']]
+  alpha: 'list(np.arange(0, 1, 0.05))+[1]'
+
+isRegularised:
+  beta: 1e-3
