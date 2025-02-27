@@ -1,9 +1,10 @@
+# flake8: noqa: F403, F405
+import numpy as np
+from .utils import *
+from firedrake import *
 import os
 os.environ["OMP_NUM_THREADS"] = "1"
 
-from firedrake import *
-from .utils import *
-import numpy as np
 
 q_degree = 2
 dx = dx(metadata={'quadrature_degree': q_degree})
@@ -14,24 +15,29 @@ ds = ds(metadata={'quadrature_degree': q_degree})
 class IsometricBendingProblem:
     def __init__(self, cfg):
         self.config = cfg
+
+        self.continuation = cfg.get('continuation', False)
+        self.on_f, self.on_g, self.on_phi = [None] * 3
+        if self.continuation:
+            self.on_f = cfg['continuation'].get('f0', None)
+            self.on_g = cfg['continuation'].get('g0', None)
+            self.on_phi = cfg['continuation'].get('phi0', None)
+
+        self.nitsche = cfg.get('nitsche', False)
+        if self.nitsche:
+            self.r0 = cfg.get('r0', Constant(100))
+
+        self.isRegularised = cfg.get('continuation', False)
+        if self.isRegularised:
+            self.beta = cfg.get('beta', Constant(1e-3))
+
         self.mesh = self.create_mesh()
         self.function_space = self.create_function_space()
 
-        self.sub_domain = tuple(cfg['sub_domain'])
+        self.r = cfg.get('r', Constant(50))
 
-        self.f = Function(self.function_space.sub(0))
-        self.g = Function(self.function_space.sub(0))
-        self.phi = Function(self.function_space.sub(2))
-        self.bcs = None
-
-        if 'alpha' in cfg:
-            self.values = eval(cfg['alpha'])
-            self.alpha = Constant(self.values[0])
-            self.history = []
-        else:
-            self.alpha = False
-
-        self.build_problem()
+        self._get_ufl_expr()
+        self._interpolate()
 
     def create_mesh(self):
         supported_mesh_types = {
@@ -47,47 +53,135 @@ class IsometricBendingProblem:
             raise NotImplementedError
 
     def create_function_space(self):
-        V = VectorFunctionSpace(self.mesh, 'CG', degree=2, dim=3, name='Deformation')
+        V = VectorFunctionSpace(self.mesh, 'CG', degree=2, dim=3)
         W = VectorFunctionSpace(self.mesh, 'DG', degree=1, dim=3)
         P = TensorFunctionSpace(self.mesh, 'DG', degree=1, shape=(3, 2))
-        Z = V*W*P
+        Z = V * W * P
+        if self.continuation:
+            self.R = FunctionSpace(self.mesh, 'R', 0)
         return Z
 
-    def build_problem(self):
+    def _get_ufl_expr(self):
         x = SpatialCoordinate(self.mesh)
-        if self.alpha:
-            alpha = self.alpha
-        f_expr = as_vector([eval(expr) for expr in self.config['f']])
-        g_expr = as_vector([eval(expr) for expr in self.config['g']])
-        phi_expr = as_matrix([[eval(expr) for expr in row] for row in self.config['phi']])
+        self.f_expr = as_vector([eval(expr) for expr in self.config['f']])
+        self.g_expr = as_vector([eval(expr) for expr in self.config['g']])
+        self.phi_expr = as_matrix([[eval(expr) for expr in row]
+                                  for row in self.config['phi']])
+        self.sub_domain = tuple(self.config['sub_domain'])
 
-        self.f.interpolate(f_expr)
-        self.g.interpolate(g_expr)
-        self.phi.interpolate(phi_expr)
-        self.bcs = DirichletBC(self.function_space.sub(0), self.g, self.sub_domain)
+        if self.continuation:
+            continuation_cfg = self.config['continuation']
+            self.values = eval(continuation_cfg['alpha'])
+
+            if self.on_f:
+                self.f0_expr = as_vector([eval(expr)
+                                         for expr in continuation_cfg['f0']])
+
+            if self.on_g:
+                self.g0_expr = as_vector([eval(expr)
+                                         for expr in continuation_cfg['g0']])
+
+            if self.on_phi:
+                self.phi0_expr = as_matrix(
+                    [[eval(expr) for expr in row] for row in continuation_cfg['phi0']])
+
+    def _interpolate(self):
+        self.f = Function(self.function_space.sub(0)).interpolate(self.f_expr)
+        self.g = Function(self.function_space.sub(0)).interpolate(self.g_expr)
+        self.phi = Function(
+            self.function_space.sub(2)).interpolate(
+            self.phi_expr)
+
+        if self.nitsche:
+            self.bcs = None
+        else:
+            self.bcs = [
+                DirichletBC(
+                    self.function_space.sub(0),
+                    self.g,
+                    self.sub_domain)]
+
+        if self.continuation:
+            self.alpha = Function(self.R).assign(self.values[0])
+            if self.on_f:
+                self.f0 = Function(
+                    self.function_space.sub(0)).interpolate(
+                    self.f0_expr)
+            if self.on_g:
+                self.g0 = Function(
+                    self.function_space.sub(0)).interpolate(
+                    self.g0_expr)
+
+                if self.nitsche:
+                    self.bcs = None
+                else:
+                    self.bcs = [DirichletBC(self.function_space.sub(0),
+                                            self.alpha * self.g + (1 - self.alpha) * self.g0,
+                                            self.sub_domain)]
+            if self.on_phi:
+                self.phi0 = Function(
+                    self.function_space.sub(2)).interpolate(
+                    self.phi0_expr)
 
     def residual(self, z):
         y, w, p = split(z)
         n = FacetNormal(self.mesh)
         h = CellSize(self.mesh)
-        h_avg = (h('+') + h('-'))/2.0
-        r = Constant(50)
-        beta = Constant(1e-4)
+        h_avg = (h('+') + h('-')) / 2.0
 
-        E = inner(grad(grad(y)), grad(grad(y)))/2*dx - dot(self.f, y)*dx
-        E -= inner(dot(avg(grad(grad(y))), n('+')), jump(grad(y)))/2*dS
-        E -= inner(dot(grad(grad(y)), n), grad(y) - self.phi)*ds(self.sub_domain)
+        r = self.r
 
-        E += r*inner(jump(grad(y)), jump(grad(y)))/h_avg*dS
-        E += r/2*inner(grad(y)-self.phi, grad(y)-self.phi)/h*ds(self.sub_domain)
+        Dy = grad(y)
+        DDy = grad(Dy)
 
-        E += inner(p, grad(y)-expm(w))*dx
-        E -= beta*h*inner(p, p)*dx
+        E = .5 * inner(DDy, DDy) * dx
+        E -= inner(dot(avg(DDy), n('+')), jump(Dy)) * dS
+        E += .5 * r / h_avg * inner(jump(Dy), jump(Dy)) * dS
+
+        if self.continuation:
+            E += Constant(0.) * self.alpha * inner(p, p) * dx
+
+        if self.on_f:
+            E -= dot(self.alpha * self.f + (1 - self.alpha) * self.f0, y) * dx
+        else:
+            E -= dot(self.f, y) * dx
+
+        if self.on_phi:
+            E -= inner(dot(DDy, n), Dy - self.alpha * self.phi -
+                       (1 - self.alpha) * self.phi0) * ds(self.sub_domain)
+            E += .5 * r / h * inner(Dy - self.alpha * self.phi - (1 - self.alpha) * self.phi0,
+                                    Dy - self.alpha * self.phi - (1 - self.alpha) * self.phi0) * ds(self.sub_domain)
+        else:
+            E -= inner(dot(DDy, n), Dy - self.phi) * ds(self.sub_domain)
+            E += .5 * r / h * inner(Dy - self.phi,
+                                    Dy - self.phi) * ds(self.sub_domain)
+
+        if self.nitsche:
+            r0 = self.r0
+            E += dot(dot(avg(div(DDy)), n('+')), jump(y)) * dS
+            E += .5 * r0 / h_avg**(-1.5) * dot(jump(y), jump(y)) * dS
+            if self.g0:
+                E += dot(dot(div(DDy), n), y - self.alpha * self.g -
+                         (1 - self.alpha) * self.g0) * ds(self.sub_domain)
+                E += .5 * r0 / h**(-1.5) * dot(y - self.alpha * self.g - (1 - self.alpha) * self.g0,
+                                               y - self.alpha * self.g - (1 - self.alpha) * self.g0) * ds(self.sub_domain)
+            else:
+                E += dot(dot(div(DDy), n), y - self.g) * ds(self.sub_domain)
+                E += .5 * r0 / h**(-1.5) * dot(y - self.g,
+                                               y - self.g) * ds(self.sub_domain)
+
+        E += inner(p, grad(y) - expm(w)) * dx
+
+        if self.isRegularised:
+            E -= self.beta * inner(p, p) * dx
+            self.Jp = None
+        else:
+            self.Jp = derivative(derivative(E - inner(p, p) * dx, z), z)
 
         F = derivative(E, z)
         return F
 
-    def inital_guess(self):
+    def initial_guess(self):
         x = SpatialCoordinate(self.mesh)
         z0 = Function(self.function_space)
         y0, w0, p0 = z0.subfunctions
@@ -98,56 +192,107 @@ class IsometricBendingProblem:
 
     def solver_parameters(self):
         return {
-            "snes_max_it": 100,
-            "snes_atol": 1.0e-7,
-            "snes_rtol": 1.0e-10,
-            "snes_max_linear_solve_fail": 100,
-            # "snes_linesearch_type": "l2",
-            # "snes_linesearch_maxstep": 1.0,
-            # "snes_monitor": None,
-            # "snes_linesearch_monitor": None,
-            # "snes_converged_reason": None,
-            # "mat_type": "aij",
-            # "ksp_type": "gmres",
-            # "ksp_monitor_cancel": None,
-            # "ksp_converged_reason": None,
-            # "ksp_max_it": 2000,
-            # "pc_type": "lu",
-            # "pc_factor_mat_solver_type": "mumps",
-            # "eps_type": "krylovschur",
-            # "eps_target": -1,
-            # "eps_monitor_all": None,
-            # "eps_converged_reason": None,
-            # "eps_nev": 1,
-            # "st_type": "sinvert",
-            # "st_ksp_type": "preonly",
-            # "st_pc_type": "lu",
-            # "st_pc_factor_mat_solver_type": "mumps",
+            # 'snes_converged_reason': None,
+            # 'ksp_converged_reason': None,
+            'ksp_monitor': None,
+            'snes_monitor': None,
+            # 'snes_type': 'newtonls',
+            # 'ksp_type': 'gmres',
+            # 'ksp_gmres_restart': 30,
+            # 'snes_rtol': 1e-6,
+            # 'snes_atol': 1e-8,
+            # 'snes_stol': 1e-50,
+            # 'snes_max_it': 50,
+            # 'ksp_rtol': 1e-8,
+            # 'ksp_atol': 1e-50,
+            # 'ksp_divtol': 1e4,
+            # 'ksp_max_it': 10000,
+            # 'ksp_view': None,
+            # 'pc_type': 'ilu',
+
+            # "pc_type": "python",
+            # "pc_python_type": "firedrake.ASMStarPC",
+            # "pc_star_construct_dim": 0,
+            # "pc_star_sub_sub_pc_type": 'lu',
+            # "pc_star_sub_sub_pc_factor_mat_solver_type": 'umfpack',
+            # vanka, star,
+            # mat: mumps, superlu
+
+            # "pc_type": "python",
+            # "pc_python_type": "firedrake.PatchPC",
+            # "patch_pc_patch_save_operators": True,
+            # "patch_pc_patch_partition_of_unity": True,
+            # "patch_pc_patch_sub_mat_type": "seqdense",
+            # "patch_pc_patch_construct_dim": 0,
+            # "patch_pc_patch_construct_type": "star",
+            # "patch_pc_patch_local_type": "additive",
+            # "patch_pc_patch_precompute_element_tensors": True,
+            # "patch_pc_patch_symmetrise_sweep": False,
+            # "patch_sub_ksp_type": "preonly",
+            # "patch_sub_pc_type": "ilu",
+            # 'patch_sub_pc_factor_mat_solver_type': 'superlu',
+            # "patch_sub_pc_factor_shift_type": "nonzero",
         }
 
-    def solve(self, fname=None):
-        z = Function(self.function_space).assign(self.inital_guess())
+    def _solve_continuation(self, z, output_file=None, verbose=False):
+        for alpha in self.values:
+            if verbose:
+                print(f'{alpha}/{self.values[-1]}')
 
-        if 'alpha' not in self.config:
-            solve(self.residual(z)==0, z, self.bcs, solver_parameters=self.solver_parameters())
-            if fname:
-                output_file = VTKFile(fname, project_output=True)
-                output_file.write(z.sub(0))
-            return z
+            self.alpha.assign(alpha)
+            self.nsolver.solve()
 
-        history = []
+            if output_file:
+                output_file.write(z.sub(0), time=alpha)
+        return z
+
+    def _solve_continuation_tangent(self, z, output_file=None, verbose=False):
+        dalpha = Function(self.R)
+        F = self.residual(z)
+        dFda = derivative(F, self.alpha, dalpha)
+        dFdz = derivative(F, z)
+        dz = Function(self.function_space)
+        if self.nitsche:
+            dbcs = None
+        else:
+            dbcs = DirichletBC(
+                self.function_space.sub(0),
+                (self.g - self.g0) * dalpha,
+                self.sub_domain)
+        problem = LinearVariationalProblem(dFdz, -dFda, dz, bcs=dbcs)
+        solver = LinearVariationalSolver(problem)
+
+        for alpha in self.values[1:]:
+            if verbose:
+                print(f'{alpha}/{self.values[-1]}')
+            dalpha.assign(alpha - self.alpha)
+            self.alpha.assign(alpha)
+            solver.solve()
+            z += dz
+            self.nsolver.solve()
+
+            if output_file:
+                output_file.write(z.sub(0), time=alpha)
+        return z
+
+    def solve(self, fname=None, verbose=False):
+        z = Function(self.function_space).assign(self.initial_guess())
+        F = self.residual(z)
+        self.nproblem = NonlinearVariationalProblem(
+            F, z, bcs=self.bcs, Jp=self.Jp)
+        self.nsolver = NonlinearVariationalSolver(
+            self.nproblem, solver_parameters=self.solver_parameters())
+        self.nsolver.solve()
+
         if fname:
             output_file = VTKFile(fname, project_output=True)
+            output_file.write(z.sub(0))
 
-        for alpha in self.values:
-            print(f'{alpha}/{self.values[-1]}')
-            self.alpha.assign(alpha)
-            self.build_problem()
-            solve(self.residual(z)==0, z, self.bcs, solver_parameters=self.solver_parameters())
-            history += [Function(self.function_space).assign(z)]
-
-            if fname:
-                output_file.write(z.sub(0), time=alpha)
-
-        self.history = history
-        return z
+        if self.continuation:
+            if self.config['continuation']['tangent']:
+                return self._solve_continuation_tangent(
+                    z, output_file, verbose)
+            else:
+                return self._solve_continuation(z, output_file, verbose)
+        else:
+            return z
