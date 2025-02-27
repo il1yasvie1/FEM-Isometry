@@ -19,22 +19,23 @@ class IsometricBendingProblem:
         self.continuation = cfg.get('continuation', False)
         self.on_f, self.on_g, self.on_phi = [None] * 3
         if self.continuation:
-            self.on_f = cfg['continuation'].get('f0', None)
-            self.on_g = cfg['continuation'].get('g0', None)
-            self.on_phi = cfg['continuation'].get('phi0', None)
+            self.on_f = cfg['continuation'].get('f0', False)
+            self.on_g = cfg['continuation'].get('g0', False)
+            self.on_phi = cfg['continuation'].get('phi0', False)
+            self.tangent = cfg['continuation'].get('tangent', False)
 
         self.nitsche = cfg.get('nitsche', False)
         if self.nitsche:
-            self.r0 = cfg.get('r0', Constant(100))
+            self.r0 = Constant(cfg.get('r0', 1e6))
 
-        self.isRegularised = cfg.get('continuation', False)
+        self.isRegularised = cfg.get('isRegularised', False)
         if self.isRegularised:
-            self.beta = cfg.get('beta', Constant(1e-3))
+            self.beta = cfg['isRegularised'].get('beta', Constant(1e-3))
+
+        self.r = Constant(cfg.get('r', 50))
 
         self.mesh = self.create_mesh()
         self.function_space = self.create_function_space()
-
-        self.r = cfg.get('r', Constant(50))
 
         self._get_ufl_expr()
         self._interpolate()
@@ -53,12 +54,23 @@ class IsometricBendingProblem:
             raise NotImplementedError
 
     def create_function_space(self):
-        V = VectorFunctionSpace(self.mesh, 'CG', degree=2, dim=3)
-        W = VectorFunctionSpace(self.mesh, 'DG', degree=1, dim=3)
-        P = TensorFunctionSpace(self.mesh, 'DG', degree=1, shape=(3, 2))
+        self.family = self.config['function_space']['family']
+        self.degree = int(self.config['function_space']['degree'])
+        if self.family in {'CG', 'Lagrange',
+                           'DG', 'Discontinuous Lagrange'}:
+            V = VectorFunctionSpace(self.mesh, self.family, self.degree, 3)
+            self.V_cg = V
+            W = VectorFunctionSpace(self.mesh, 'DG', self.degree - 1, 3)
+            P = TensorFunctionSpace(self.mesh, 'DG', self.degree - 1, (3, 2))
+        elif self.family in {'BELL', 'Bell', 'ARG', 'Argyris',
+                             'HER', 'Hermite',
+                             'MOR', 'Morley'}:
+            V = VectorFunctionSpace(self.mesh, self.family, self.degree, 3)
+            self.V_cg = VectorFunctionSpace(self.mesh, 'CG', self.degree, 3)
+            W = VectorFunctionSpace(self.mesh, 'CG', self.degree - 1, 3)
+            P = TensorFunctionSpace(self.mesh, 'CG', self.degree - 1, (3, 2))
+        self.R = FunctionSpace(self.mesh, 'R', 0)
         Z = V * W * P
-        if self.continuation:
-            self.R = FunctionSpace(self.mesh, 'R', 0)
         return Z
 
     def _get_ufl_expr(self):
@@ -86,8 +98,10 @@ class IsometricBendingProblem:
                     [[eval(expr) for expr in row] for row in continuation_cfg['phi0']])
 
     def _interpolate(self):
-        self.f = Function(self.function_space.sub(0)).interpolate(self.f_expr)
-        self.g = Function(self.function_space.sub(0)).interpolate(self.g_expr)
+        f_cg = Function(self.V_cg).interpolate(self.f_expr)
+        self.f = Function(self.function_space.sub(0)).project(f_cg)
+        g_cg = Function(self.V_cg).interpolate(self.g_expr)
+        self.g = Function(self.function_space.sub(0)).project(g_cg)
         self.phi = Function(
             self.function_space.sub(2)).interpolate(
             self.phi_expr)
@@ -104,13 +118,15 @@ class IsometricBendingProblem:
         if self.continuation:
             self.alpha = Function(self.R).assign(self.values[0])
             if self.on_f:
+                f0_cg = Function(self.V_cg).interpolate(self.f0_expr)
                 self.f0 = Function(
-                    self.function_space.sub(0)).interpolate(
-                    self.f0_expr)
+                    self.function_space.sub(0)).project(
+                    f0_cg)
             if self.on_g:
+                g0_cg = Function(self.V_cg).interpolate(self.g0_expr)
                 self.g0 = Function(
-                    self.function_space.sub(0)).interpolate(
-                    self.g0_expr)
+                    self.function_space.sub(0)).project(
+                    g0_cg)
 
                 if self.nitsche:
                     self.bcs = None
@@ -130,7 +146,6 @@ class IsometricBendingProblem:
         h_avg = (h('+') + h('-')) / 2.0
 
         r = self.r
-
         Dy = grad(y)
         DDy = grad(Dy)
 
@@ -143,6 +158,7 @@ class IsometricBendingProblem:
 
         if self.on_f:
             E -= dot(self.alpha * self.f + (1 - self.alpha) * self.f0, y) * dx
+
         else:
             E -= dot(self.f, y) * dx
 
@@ -151,6 +167,7 @@ class IsometricBendingProblem:
                        (1 - self.alpha) * self.phi0) * ds(self.sub_domain)
             E += .5 * r / h * inner(Dy - self.alpha * self.phi - (1 - self.alpha) * self.phi0,
                                     Dy - self.alpha * self.phi - (1 - self.alpha) * self.phi0) * ds(self.sub_domain)
+
         else:
             E -= inner(dot(DDy, n), Dy - self.phi) * ds(self.sub_domain)
             E += .5 * r / h * inner(Dy - self.phi,
@@ -160,7 +177,7 @@ class IsometricBendingProblem:
             r0 = self.r0
             E += dot(dot(avg(div(DDy)), n('+')), jump(y)) * dS
             E += .5 * r0 / h_avg**(-1.5) * dot(jump(y), jump(y)) * dS
-            if self.g0:
+            if self.on_g:
                 E += dot(dot(div(DDy), n), y - self.alpha * self.g -
                          (1 - self.alpha) * self.g0) * ds(self.sub_domain)
                 E += .5 * r0 / h**(-1.5) * dot(y - self.alpha * self.g - (1 - self.alpha) * self.g0,
@@ -177,7 +194,6 @@ class IsometricBendingProblem:
             self.Jp = None
         else:
             self.Jp = derivative(derivative(E - inner(p, p) * dx, z), z)
-
         F = derivative(E, z)
         return F
 
@@ -185,7 +201,7 @@ class IsometricBendingProblem:
         x = SpatialCoordinate(self.mesh)
         z0 = Function(self.function_space)
         y0, w0, p0 = z0.subfunctions
-        y0.interpolate(as_vector([x[0], x[1], 0]))
+        y0.project(as_vector([x[0], x[1], 0]))
         w0.interpolate(as_vector([0, 0, 0]))
         p0.interpolate(as_matrix([[0, 0], [0, 0], [0, 0]]))
         return z0
@@ -194,13 +210,13 @@ class IsometricBendingProblem:
         return {
             # 'snes_converged_reason': None,
             # 'ksp_converged_reason': None,
-            'ksp_monitor': None,
-            'snes_monitor': None,
+            # 'ksp_monitor': None,
+            # 'snes_monitor': None,
             # 'snes_type': 'newtonls',
             # 'ksp_type': 'gmres',
             # 'ksp_gmres_restart': 30,
-            # 'snes_rtol': 1e-6,
-            # 'snes_atol': 1e-8,
+            'snes_rtol': 1e-6,
+            'snes_atol': 1e-8,
             # 'snes_stol': 1e-50,
             # 'snes_max_it': 50,
             # 'ksp_rtol': 1e-8,
@@ -237,13 +253,16 @@ class IsometricBendingProblem:
     def _solve_continuation(self, z, output_file=None, verbose=False):
         for alpha in self.values:
             if verbose:
-                print(f'{alpha}/{self.values[-1]}')
+                print(
+                    f'\rProgress: {100 * alpha / self.values[-1]:.1f}%', end='')
 
             self.alpha.assign(alpha)
             self.nsolver.solve()
 
             if output_file:
                 output_file.write(z.sub(0), time=alpha)
+        print('')
+        print("=" * 60)
         return z
 
     def _solve_continuation_tangent(self, z, output_file=None, verbose=False):
@@ -252,19 +271,21 @@ class IsometricBendingProblem:
         dFda = derivative(F, self.alpha, dalpha)
         dFdz = derivative(F, z)
         dz = Function(self.function_space)
-        if self.nitsche:
-            dbcs = None
-        else:
+        if self.on_g and not self.nitsche:
             dbcs = DirichletBC(
                 self.function_space.sub(0),
                 (self.g - self.g0) * dalpha,
                 self.sub_domain)
+        else:
+            dbcs = None
+
         problem = LinearVariationalProblem(dFdz, -dFda, dz, bcs=dbcs)
         solver = LinearVariationalSolver(problem)
 
         for alpha in self.values[1:]:
             if verbose:
-                print(f'{alpha}/{self.values[-1]}')
+                print(
+                    f'\rProgress: {100 * alpha / self.values[-1]:.1f}%', end='')
             dalpha.assign(alpha - self.alpha)
             self.alpha.assign(alpha)
             solver.solve()
@@ -273,9 +294,26 @@ class IsometricBendingProblem:
 
             if output_file:
                 output_file.write(z.sub(0), time=alpha)
+        print('')
+        print("=" * 60)
         return z
 
     def solve(self, fname=None, verbose=False):
+        print("=" * 60)
+        print('██╗███████╗ ██████╗ ███╗   ███╗███████╗████████╗██████╗ ██╗ ██████╗')
+        print('██║██╔════╝██╔═══██╗████╗ ████║██╔════╝╚══██╔══╝██╔══██╗██║██╔════╝')
+        print('██║███████╗██║   ██║██╔████╔██║█████╗     ██║   ██████╔╝██║██║ ')
+        print('██║╚════██║██║   ██║██║╚██╔╝██║██╔══╝     ██║   ██╔══██╗██║██║ ')
+        print('██║███████║╚██████╔╝██║ ╚═╝ ██║███████╗   ██║   ██║  ██║██║╚██████╗')
+        print('╚═╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝ ╚═════╝')
+        print("=" * 60)
+        print(f"{'Continuation:':<30} {self.continuation}")
+        print(f"{'Family:':<30} {self.family}_{self.degree}")
+        print(f"{'Nitsche\'s Approach:':<30} {self.nitsche}")
+        print(f"{'isRegularised:':<30} {self.isRegularised}")
+        print(f"{'MeshSize:':<30} {assemble(CellSize(self.mesh) * dx):.6f}")
+        print("=" * 60)
+
         z = Function(self.function_space).assign(self.initial_guess())
         F = self.residual(z)
         self.nproblem = NonlinearVariationalProblem(
@@ -289,7 +327,7 @@ class IsometricBendingProblem:
             output_file.write(z.sub(0))
 
         if self.continuation:
-            if self.config['continuation']['tangent']:
+            if self.tangent:
                 return self._solve_continuation_tangent(
                     z, output_file, verbose)
             else:
