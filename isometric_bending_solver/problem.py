@@ -325,7 +325,7 @@ class IsometricBendingProblem:
         print("=" * 60)
         print(f"{'Continuation:':<30} {self.continuation}")
         print(f"{'Family:':<30} {self.family}_{self.degree}")
-        print(f"{'Nitsche\'s Approach:':<30} {self.nitsche}")
+        print(f"{'Nitsches Approach:':<30} {self.nitsche}")
         print(f"{'isRegularised:':<30} {self.isRegularised}")
         print(f"{'MeshSize:':<30} {assemble(CellSize(self.mesh) * dx):.6f}")
         print("=" * 60)
