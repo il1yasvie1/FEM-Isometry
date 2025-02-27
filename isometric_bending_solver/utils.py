@@ -27,7 +27,7 @@ def expm(w, reduced=True):
         return expw
 
 
-def plot_deformation(y, fname, equal_aspect=False):
+def plot_deformation(y, fname=False, equal_aspect=False):
     y1, y2, y3 = y.dat.data.T
     fig = plt.figure(figsize=(12, 10))
     ax = fig.add_subplot(111, projection='3d', azim=-60, elev=30)
@@ -47,7 +47,10 @@ def plot_deformation(y, fname, equal_aspect=False):
     ax.set_zlabel('y3')
     if equal_aspect:
         ax.set_aspect('equal')
-    plt.savefig(fname, dpi=300, bbox_inches='tight')
+    if fname:
+        plt.savefig(fname, dpi=300, bbox_inches='tight')
+    else:
+        plt.show()
 
 
 def compute_isometry_defect(y):

@@ -1,9 +1,9 @@
 # flake8: noqa: F403, F405
+from firedrake import *
 import numpy as np
 from .utils import *
 import os
 os.environ["OMP_NUM_THREADS"] = "1"
-from firedrake import *
 
 
 q_degree = 2
@@ -35,6 +35,10 @@ class IsometricBendingProblem:
 
         self.mesh = self.create_mesh(from_dict)
         self.function_space = self.create_function_space()
+        self.solver_parameters = dict(
+            cfg.get(
+                'solver_parameters', {
+                    'snes_rtol': 1e-6, 'snes_atol': 1e-8, }))
         self._get_ufl_expr(from_dict)
         self._interpolate()
 
@@ -49,7 +53,8 @@ class IsometricBendingProblem:
             mesh_cfg = self.config['mesh']
             mesh_type = mesh_cfg['type']
             if mesh_type in supported_mesh_types:
-                mesh = supported_mesh_types[mesh_type](**mesh_cfg['parameters'])
+                mesh = supported_mesh_types[mesh_type](
+                    **mesh_cfg['parameters'])
                 return mesh
             else:
                 raise NotImplementedError
@@ -94,7 +99,7 @@ class IsometricBendingProblem:
             self.f_expr = as_vector([eval(expr) for expr in self.config['f']])
             self.g_expr = as_vector([eval(expr) for expr in self.config['g']])
             self.phi_expr = as_matrix([[eval(expr) for expr in row]
-                                    for row in self.config['phi']])
+                                       for row in self.config['phi']])
             self.sub_domain = tuple(self.config['sub_domain'])
 
             if self.continuation:
@@ -102,12 +107,12 @@ class IsometricBendingProblem:
                 self.values = eval(continuation_cfg['alpha'])
 
                 if self.on_f:
-                    self.f0_expr = as_vector([eval(expr)
-                                            for expr in continuation_cfg['f0']])
+                    self.f0_expr = as_vector(
+                        [eval(expr) for expr in continuation_cfg['f0']])
 
                 if self.on_g:
-                    self.g0_expr = as_vector([eval(expr)
-                                            for expr in continuation_cfg['g0']])
+                    self.g0_expr = as_vector(
+                        [eval(expr) for expr in continuation_cfg['g0']])
 
                 if self.on_phi:
                     self.phi0_expr = as_matrix(
@@ -222,50 +227,6 @@ class IsometricBendingProblem:
         p0.interpolate(as_matrix([[0, 0], [0, 0], [0, 0]]))
         return z0
 
-    def solver_parameters(self):
-        return {
-            # 'snes_converged_reason': None,
-            # 'ksp_converged_reason': None,
-            # 'ksp_monitor': None,
-            # 'snes_monitor': None,
-            # 'snes_type': 'newtonls',
-            # 'ksp_type': 'gmres',
-            # 'ksp_gmres_restart': 30,
-            'snes_rtol': 1e-6,
-            'snes_atol': 1e-8,
-            # 'snes_stol': 1e-50,
-            # 'snes_max_it': 50,
-            # 'ksp_rtol': 1e-8,
-            # 'ksp_atol': 1e-50,
-            # 'ksp_divtol': 1e4,
-            # 'ksp_max_it': 10000,
-            # 'ksp_view': None,
-            # 'pc_type': 'ilu',
-
-            # "pc_type": "python",
-            # "pc_python_type": "firedrake.ASMStarPC",
-            # "pc_star_construct_dim": 0,
-            # "pc_star_sub_sub_pc_type": 'lu',
-            # "pc_star_sub_sub_pc_factor_mat_solver_type": 'umfpack',
-            # vanka, star,
-            # mat: mumps, superlu
-
-            # "pc_type": "python",
-            # "pc_python_type": "firedrake.PatchPC",
-            # "patch_pc_patch_save_operators": True,
-            # "patch_pc_patch_partition_of_unity": True,
-            # "patch_pc_patch_sub_mat_type": "seqdense",
-            # "patch_pc_patch_construct_dim": 0,
-            # "patch_pc_patch_construct_type": "star",
-            # "patch_pc_patch_local_type": "additive",
-            # "patch_pc_patch_precompute_element_tensors": True,
-            # "patch_pc_patch_symmetrise_sweep": False,
-            # "patch_sub_ksp_type": "preonly",
-            # "patch_sub_pc_type": "ilu",
-            # 'patch_sub_pc_factor_mat_solver_type': 'superlu',
-            # "patch_sub_pc_factor_shift_type": "nonzero",
-        }
-
     def _solve_continuation(self, z, output_file=None, verbose=False):
         for alpha in self.values:
             if verbose:
@@ -335,7 +296,7 @@ class IsometricBendingProblem:
         self.nproblem = NonlinearVariationalProblem(
             F, z, bcs=self.bcs, Jp=self.Jp)
         self.nsolver = NonlinearVariationalSolver(
-            self.nproblem, solver_parameters=self.solver_parameters())
+            self.nproblem, solver_parameters=self.solver_parameters)
         self.nsolver.solve()
 
         if fname:
