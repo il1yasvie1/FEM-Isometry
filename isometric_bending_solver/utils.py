@@ -1,6 +1,8 @@
 from firedrake import *
 import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.animation as animation
+import itertools
 
 LeviCivita = Constant([[[0, 0, 0], [0, 0, -1], [0, 1, 0]],
                        [[0, 0, 1], [0, 0, 0], [-1, 0, 0]],
@@ -25,32 +27,6 @@ def expm(w, reduced=True):
         return dot(expw, ProjMat)
     else:
         return expw
-
-
-def plot_deformation(y, fname=False, equal_aspect=False):
-    y1, y2, y3 = y.dat.data.T
-    fig = plt.figure(figsize=(12, 10))
-    ax = fig.add_subplot(111, projection='3d', azim=-60, elev=30)
-    trisurf = ax.plot_trisurf(
-        y1, y2, y3,
-        cmap='viridis',
-        facecolors=plt.cm.viridis(y3),
-        edgecolor='k',
-        linewidth=0.2,
-        antialiased=True,
-        alpha=0.9,
-        shade=True
-    )
-    ax.grid(False)
-    ax.set_xlabel('y1')
-    ax.set_ylabel('y2')
-    ax.set_zlabel('y3')
-    if equal_aspect:
-        ax.set_aspect('equal')
-    if fname:
-        plt.savefig(fname, dpi=300, bbox_inches='tight')
-    else:
-        plt.show()
 
 
 def compute_isometry_defect(y):
@@ -119,3 +95,51 @@ def plot_with_linear_fit(x, y, fname,
     plt.savefig(fname)
 
     return coeffs
+
+
+def plot_deformation(x0, x1, y, fname):
+    mesh_x = np.array(list(itertools.product(x0, x1)))
+    Y = np.array(y.at(mesh_x))
+    Y0, Y1, Y2 = Y.T
+    Y0 = Y0.reshape(len(x0), len(x1))
+    Y1 = Y1.reshape(len(x0), len(x1))
+    Y2 = Y2.reshape(len(x0), len(x1))
+
+    fig = plt.figure(figsize=(12, 10))
+    ax = fig.add_subplot(111, projection='3d')
+    ax.view_init(elev=30, azim=-60)
+    ax.grid(True)
+    ax.set_aspect('equal')
+    ax.plot_surface(Y0, Y1, Y2, edgecolor='none')
+    plt.savefig(fname, dpi=300, bbox_inches='tight')
+
+
+def plot_deformation_anim(x0, x1, y_list, fname, xlim, ylim, zlim, interval=50):
+    mesh_x = np.array(list(itertools.product(x0, x1)))
+    fig = plt.figure(figsize=(12, 10))
+    ax = fig.add_subplot(111, projection='3d')
+    ax.view_init(elev=30, azim=-60)
+    ax.grid(True)
+    ax.set_aspect('equal')
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+    ax.set_zlim(zlim)
+
+    def update(frame):
+        ax.clear()
+        ax.view_init(elev=30, azim=-60)
+        ax.grid(True)
+        ax.set_aspect('equal')
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+        ax.set_zlim(zlim)
+        y = y_list[frame]
+        Y = np.array(y.at(mesh_x))
+        Y0, Y1, Y2 = Y.T
+        Y0 = Y0.reshape(len(x0), len(x1))
+        Y1 = Y1.reshape(len(x0), len(x1))
+        Y2 = Y2.reshape(len(x0), len(x1))
+        ax.plot_surface(Y0, Y1, Y2, edgecolor='none')
+
+    ani = animation.FuncAnimation(fig, update, frames=len(y_list), interval=interval, cache_frame_data=False)
+    ani.save(fname, writer='pillow', fps=1000 // interval)
