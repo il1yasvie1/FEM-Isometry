@@ -29,15 +29,18 @@ class IsometricBendingProblem:
             self.continuation = False
         else:
             self.a = cfg['continuation'].get('a')
-            self.values = cfg['continuation'].get('values')
+            self.range = cfg['continuation'].get('range')
+            self.a.assign(self.range[0])
+            self.step_size = cfg['continuation'].get('step_size')
             self.tangent = cfg['continuation'].get('tangent', False)
             self.saved = cfg['continuation'].get('saved', False)
-            assert isinstance(
-                self.a, Constant) and isinstance(
-                self.values, list)
-            self.continuation = {'a0': float(self.a),
+            self.continuation = {'range': self.range,
+                                 'step_size': self.step_size,
                                  'tangent': self.tangent,
                                  'saved': self.saved}
+            self.values = list(np.arange(self.range[0], self.range[1], self.step_size))
+            if self.values[-1] != self.range[-1]:
+                self.values.append(self.range[-1])
 
         self.stabilized = cfg.get('stabilized')
         if self.stabilized in (False, None):
@@ -124,15 +127,13 @@ class IsometricBendingProblem:
             self.sub_domain = self.config['sub_domain']
         else:
             x = SpatialCoordinate(self.mesh)
+            if self.continuation:
+                a = self.a
             self.f_expr = as_vector([eval(expr) for expr in self.config['f']])
             self.g_expr = as_vector([eval(expr) for expr in self.config['g']])
             self.phi_expr = as_matrix([[eval(expr) for expr in row]
                                        for row in self.config['phi']])
             self.sub_domain = tuple(self.config['sub_domain'])
-
-            if self.continuation:
-                continuation_cfg = self.config['continuation']
-                self.values = eval(continuation_cfg['alpha'])
 
     def residual(self, z):
         y, w, p = split(z)
@@ -246,8 +247,6 @@ class IsometricBendingProblem:
             z += dz
             self.nsolver.solve()
 
-            # print(assemble(action(F, z)))
-
             if output_file:
                 output_file.write(z.sub(0), time=float(a))
 
@@ -263,6 +262,58 @@ class IsometricBendingProblem:
             return z, y_list
         else:
             return z
+        
+    def _optimal_continuation(self):
+        min_step = 0.001
+
+        z = Function(self.function_space).assign(self._set_initial_guess())
+        F = self.residual(z)
+        self.nproblem = NonlinearVariationalProblem(
+            F, z, bcs=self.bcs, Jp=self.Jp)
+        self.nsolver = NonlinearVariationalSolver(
+            self.nproblem, solver_parameters=self.solver_parameters)
+        
+        self.nsolver.solve()
+        a_values = list(np.arange(self.values[0], 1.0, min_step))
+        a0, a1 = 0, len(a_values)-1
+
+        continuation_list = [a0]
+        step_list = []
+        z0 = Function(self.function_space).assign(z)
+        avg_step = 0
+        minimal_step = 1
+
+        while continuation_list[-1] != a_values[-1]:
+            print(f'a0={a_values[a0]: .3f}, a1={a_values[a1]: .3f}, avg_step={avg_step*min_step: .3f}, minimal_step={minimal_step: .3f}')
+            converged = False
+            amid = a1
+            while a1 - a0 > 1:
+                try:
+                    self.a.assign(a_values[amid])
+                    self.nsolver.solve()
+                    z.assign(z0)
+                    a0 = amid
+                    converged = True
+
+                except ConvergenceError:
+                    z.assign(z0)
+                    a1 = amid
+                amid = (a0 + a1)//2
+
+            if converged:
+                z.assign(z0)
+                self.a.assign(a_values[amid])
+                self.nsolver.solve()
+                z0.assign(z)
+                step_list.append(amid - continuation_list[-1])
+                minimal_step = min(minimal_step, (amid-continuation_list[-1])*min_step)
+                avg_step = int(np.mean(step_list))
+                a0 = amid
+                a1 = int(min(amid + 3*avg_step, len(a_values)-1))
+                continuation_list.append(a0)
+            else:
+                print('min step fails!')
+                break
 
     def solve(self, fname=None, verbose=False):
         print("=" * 60)
@@ -273,11 +324,11 @@ class IsometricBendingProblem:
         print('██║███████║╚██████╔╝██║ ╚═╝ ██║███████╗   ██║   ██║  ██║██║╚██████╗')
         print('╚═╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝ ╚═════╝')
         print("=" * 60)
-        print(f"{'Continuation:':<30} {self.continuation}")
         print(f"{'Family:':<30} {self.family}_{self.degree}")
+        print(f"{'MeshSize:':<30} {assemble(CellSize(self.mesh) * dx):.6f}")
+        print(f"{'Continuation:':<30} {self.continuation}")
         print(f"{'Nitsches Approach:':<30} {self.nitsche}")
         print(f"{'stabilized:':<30} {self.stabilized}")
-        print(f"{'MeshSize:':<30} {assemble(CellSize(self.mesh) * dx):.6f}")
         print("=" * 60)
 
         z = Function(self.function_space).assign(self._set_initial_guess())

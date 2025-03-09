@@ -1,4 +1,4 @@
-from isometric_bending_solver.problem1 import IsometricBendingProblem
+from isometric_bending_solver.problem import IsometricBendingProblem
 from isometric_bending_solver.utils import compute_surface_area, compute_isometry_defect, plot_deformation
 from firedrake import *
 import numpy as np
@@ -10,15 +10,22 @@ stabilized = False
 mesh = UnitSquareMesh(nx, nx)
 x = SpatialCoordinate(mesh)
 theta = np.pi / 4
+
 config = {'mesh': mesh,
           'function_space': {'family': family,
                              'degree': degree},
           'continuation': False,
           'nitsche': nitsche,
           'stabilized': stabilized,
-          'f': as_vector([(theta**3) * sin(theta * x[0]), 0, (-1) * (theta**3) * cos(theta * x[0])]),
-          'g': as_vector([sin(theta * x[0]) / theta, x[1], 1 - cos(theta * x[0]) / theta]),
-          'phi': as_matrix([[cos(theta * x[0]), 0], [0, 1], [sin(theta * x[0]), 0]]),
+          'f': as_vector([(theta**3) * sin(theta * x[0]),
+                          0,
+                          (-1) * (theta**3) * cos(theta * x[0])]),
+          'g': as_vector([sin(theta * x[0]) / theta,
+                          x[1],
+                          1 - cos(theta * x[0]) / theta]),
+          'phi': as_matrix([[cos(theta * x[0]), 0],
+                            [0, 1],
+                            [sin(theta * x[0]), 0]]),
           'sub_domain': (1, 2, 3, 4),
           'solver_parameters': {
               'snes_rtol': 1e-9, 'snes_atol': 1e-50,
