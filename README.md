@@ -10,9 +10,7 @@ A Firedrake-based numerical solver for the isometric bending deformation on the 
 ## Contents
 - [Installation and Dependency](#installation-and-dependency)
 - [Overview](#overview)
-- [Biharmonic Equation](#biharmonic-equation)
-- [Isometric Constraint](#isometric-constraint)
-- [Numerical Continuation](#numerical-continuation)
+- [Implementation](#implementation)
 - [5-min Tutorial](#5-min-tutorial)
 - [References](#references)
 
@@ -49,7 +47,7 @@ where $`\Omega \subset \mathbb{R}^2 `$, $` g \in [H^1(\Omega)]^3 `$ and $` \Phi 
 2. The isometry constraint implemented by the exponential map and a skew-symmetrize map.
 3. The numerical continuation method to solve the large isometric bending or difficult problem.
 
-## Biharmonic Equation
+## Implementation
 In [Bonito et al. (2020)](#bonito2020), the author(s) derived that the strong form of the Euler-Lagrange equation on the minimizer of the energy functional satisfies a biharmonic equation. There are 4 classical methods to solve the biharmonic problem ([Brenner (2011)](#brenner2011)) and some of them are used in isometric bending problem:
 
 1. conforming method, e.g. Argyris, Bell elements.
@@ -57,10 +55,8 @@ In [Bonito et al. (2020)](#bonito2020), the author(s) derived that the strong fo
 3. interior penalty methods, e.g. $`C^0`$ or Discontinuous Lagrange elements.
 4. mixed formulation on two Poisson's equations. We have not explored this approach.
 
-## Isometric Constraint
+We mainly develop the theory for $`C^0`$-interior penalty method.
 
-## Numerical Continuation
-   
 ## 5-min Tutorial
 Here we use the example from `examples/mobius.py` to show the whole process of solving. You could also directly test this example with default setting by
 ```bash
@@ -99,24 +95,46 @@ where `a` is the continuation parameter from $`0`$ to $`\pi`$.
 ### Implementation
 Here we use `isometric-bending-solver` to build and solve the problem. The main functionalities are integrated into the class `IsometricBendingProblem` where all parameters are passed via a `config` dictionary. Here are config options:
 
-- `mesh`: for this problem, we could set as:
-  ```python
+- `mesh`: 
+- `function_space`: use the most stable $`C^0`$-interior penalty formulation with `degree = d`
+- `continuation`: we first define the continuation parameter `a` and set `range` for it as $`(0, \pi)`$ with an appropriate `step_size` for continuation. Moreover, set `tangent` as `True` to use tangent continuation method. To visualise the continuation process, set `saved` to `True`.
+- `g`, `phi`, `f`, `sub_domain`: set functions as their `ufl_expr`s and `sub_domain` as `(1, 2)` for selecting the corresponding part of boundary. Notice that the continuation parameter `a` should be explicitly appear in the definition of expressions.
+-  `initial_guess`: exact solution to the cylindrical surface.
+-  `stabilized`: turn it on to make solver converged more easily.
+-  `nitsche`: not necessary when using $`C^0`$ interior penalty method. Hence we set it as `False` or exclude it from `config`.
+-  `solver_parameters`: the interface for the parameters setting for PETSc.
+
+Here is the full definition for `config`:
+```python
+nx = 8
+family, degree = ('CG', 2)
   mesh = RectangleMesh(nx, ny, 2*np.pi, 2*l)
-  config['mesh'] = mesh
-  ```
-- `function_space`: to use the most stable $`C^0`$-interior penalty formulation with `degree = d`,
-  ```python
-  config['function_space'] = {'family': 'CG', 'degree': d}
-  ```
-- `continuation`: we first need to define the continuation parameter `a` and set `range` for it as $`(0, \pi)`$ with an appropriate `step_size` for continuation. Moreover, we could set `tangent` as `True` to use tangent continuation method. To visualise the continuation process, set `saved` to `True`,
-  ```python
-  a = Constant(0.0)
-  config['continuation'] = {'a': a, 'range': (0, np.pi), 'step_size':0.01, 'tangent': True, 'saved': True}
-  ``` 
-- `g`, `phi`, `f`, `sub_domain`: here we set functions as their `ufl_expr`s and `sub_domain` as `(1, 2)` for selecting the corresponding part of boundary. Notice that the continuation parameter `a` should be explicitly appear in the definition of expressions.
--  `initial_guess`.
--  `stabilized`: we need to turn it on to make solver converged more easily.
--  `nitsche`: not necessary for using $`C^0`$ interior penalty method. Hence we set it as `False` or exclude it from `config`.
+x = SpatialCoordinate(mesh)
+a = Constant(0.0)
+
+config = {'mesh': mesh,
+          'function_space': {'family': family,
+                             'degree': degree},
+          'continuation': {'a': a,
+                           'range': (0, np.pi),
+                           'step_size': 0.01,
+                           'tangent': True,
+                           'saved': True},
+          'stabilized': True,
+          'nitsche': False,
+          'f': as_vector([sin(x[0]), 0, -cos(x[0])]),
+          'g': as_vector([sin(x[0]),
+                          conditional(lt(x[0], np.pi), 0.5 + (x[1] - 0.5) * cos(a), x[1]),
+                          conditional(lt(x[0], np.pi), (x[1] - 0.5) * sin(a), 0)]),
+          'phi': as_matrix([[1, 0],
+                            [0, conditional(lt(x[0], np.pi), cos(a), 1)],
+                            [0, conditional(lt(x[0], np.pi), sin(a), 0)]]),
+          'sub_domain': (1, 2),
+          'initial_guess': {'y0': as_vector([sin(x[0]), x[1], 1 - cos(x[0])]),
+                            'w0': as_vector([0, -x[0], 0])},
+          'solver_parameters': {},
+          }
+```
 
 After we fully define the dictionary `config`, we could build and solve the problem as the following:
 ```python
