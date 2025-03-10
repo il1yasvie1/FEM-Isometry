@@ -92,7 +92,7 @@ f = [\sin(x_1), 0, -\cos(x_1)]
 ```
 where `a` is the continuation parameter from $`0`$ to $`\pi`$.
 
-### Implementation
+### Code
 Here we use `isometric-bending-solver` to build and solve the problem. The main functionalities are integrated into the class `IsometricBendingProblem` where all parameters are passed via a `config` dictionary. Here are config options:
 
 - `mesh`: 
