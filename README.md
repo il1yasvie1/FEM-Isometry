@@ -10,6 +10,9 @@ A Firedrake-based numerical solver for the isometric bending deformation on the 
 ## Contents
 - [Installation and Dependency](#installation-and-dependency)
 - [Overview](#overview)
+- [Biharmonic Equation](#biharmonic-equation)
+- [Isometric Constraint](#isometric-constraint)
+- [Numerical Continuation](#numerical-continuation)
 - [5-min Tutorial](#5-min-tutorial)
 - [References](#references)
 
@@ -42,9 +45,21 @@ This project focuses on developing a numerical solver for the following minimisa
 ```
 where $`\Omega \subset \mathbb{R}^2 `$, $` g \in [H^1(\Omega)]^3 `$ and $` \Phi \in [H^1(\Omega)]^{3\times 2} `$ are the Dirichlet data on part of the boundary $`\partial \Omega_D`$ of $`\Omega`$ and $`f \in [L^2(\Omega)]^3`$ is the forcing data. Notice that there is a nonlinear isometry constraint requiring the Jacobian of the deformation field to have orthonormal columns. In this work, we mainly introduce a novel approach to enforcing this constraint using the exponential map of a skew-symmetric matrix which generates an orthonormal matrix. To adapt this approach, an appropriate mixed formulation using interior penalty methods or higher order elements) should be considered. There are mainly 3 challenges for this project:
 
-1. The fourth-order biharmonic equation $`\Delta^2 y = f`$ without the isometry constraint. There are 4 classical methods to solve the biharmonic problem ([Brenner (2011)](#brenner2011)): conforming method (e.g. Argyris, Bell elements), nonconforming method (e.g. quadratic Morley elements), mixed formulation on two Poisson's equations, and interior penalty methods ($`C^0`$ or Discontinuous Lagrange). 
+1. The fourth-order biharmonic equation $`\Delta^2 y = f`$.
 2. The isometry constraint implemented by the exponential map and a skew-symmetrize map.
 3. The numerical continuation method to solve the large isometric bending or difficult problem.
+
+## Biharmonic Equation
+In [Bonito et al. (2020)](#bonito2020), the author(s) derived that the strong form of the Euler-Lagrange equation on the minimizer of the energy functional satisfies a biharmonic equation. There are 4 classical methods to solve the biharmonic problem ([Brenner (2011)](#brenner2011)) and some of them are used in isometric bending problem:
+
+1. conforming method, e.g. Argyris, Bell elements.
+2. nonconforming method, e.g. quadratic Morley elements.
+3. interior penalty methods, e.g. $`C^0`$ or Discontinuous Lagrange elements.
+4. mixed formulation on two Poisson's equations. We have not explored this approach.
+
+## Isometric Constraint
+
+## Numerical Continuation
    
 ## 5-min Tutorial
 Here we use the example from `examples/mobius.py` to show the whole process of solving. You could also directly test this example with default setting by
@@ -79,7 +94,7 @@ g|_{x_1=0} = [0, l + (x_2 - l)\cos(a), (x_2 - l)\sin(a)] , \quad & g|_{x_1=2\pi}
 ```math
 f = [\sin(x_1), 0, -\cos(x_1)]
 ```
-where `a` is the continuation parameter from $`0`$ to $`2\pi`$.
+where `a` is the continuation parameter from $`0`$ to $`\pi`$.
 
 ### Implementation
 Here we use `isometric-bending-solver` to build and solve the problem. The main functionalities are integrated into the class `IsometricBendingProblem` where all parameters are passed via a `config` dictionary. Here are config options:
@@ -110,11 +125,11 @@ problem.solve()
 ```
 
 ### Visuals
-Here are the visuals for the Möbius strip:
+The visualisation tools are implemented as `plot_deformation` or `plot_deformation_anim`. Saving results to the `.pvd` file is also avaliable. Here are the visuals for the Möbius strip:
 ![The equilibrium state](/examples/figures/mobius.png)
 ![Continuation mobius](/examples/figures/mobius.gif)
 
 ## References
 - <a id="bonito2020"></a> Bonito, A., Nochetto, R. H., & Ntogkas, D. (2020). *DG Approach to Large Bending Plate Deformations with Isometry Constraint*. arXiv preprint, [arXiv:1912.03812](https://arxiv.org/abs/1912.03812).
 - <a id="friesecke2002"></a> Friesecke, G., Müller, S., & James, R. D. (2002). Rigorous derivation of nonlinear plate theory and geometric rigidity. *Comptes Rendus Mathematique*, 334(2), 173–178. https://doi.org/10.1016/S1631-073X(02)02133-7
-<a id="brenner2011"></a> Brenner, S.C. (2011). *C₀ Interior Penalty Methods*. In: Blowey, J., Jensen, M. (eds) Frontiers in Numerical Analysis - Durham 2010. Lecture Notes in Computational Science and Engineering, vol 85. Springer, Berlin, Heidelberg. [https://doi.org/10.1007/978-3-642-23914-4_2](https://doi.org/10.1007/978-3-642-23914-4_2)
+- <a id="brenner2011"></a> Brenner, S.C. (2011). *C₀ Interior Penalty Methods*. In: Blowey, J., Jensen, M. (eds) Frontiers in Numerical Analysis - Durham 2010. Lecture Notes in Computational Science and Engineering, vol 85. Springer, Berlin, Heidelberg. [https://doi.org/10.1007/978-3-642-23914-4_2](https://doi.org/10.1007/978-3-642-23914-4_2)
