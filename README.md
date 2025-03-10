@@ -55,7 +55,28 @@ In [Bonito et al. (2020)](#bonito2020), the author(s) derived that the strong fo
 3. interior penalty methods, e.g. $`C^0`$ or Discontinuous Lagrange elements.
 4. mixed formulation on two Poisson's equations. We have not explored this approach.
 
-We mainly develop the theory for $`C^0`$-interior penalty method.
+We mainly develop the theory for $`C^0`$-interior penalty method which use Lagrange elements with degree at least 2.
+
+We implement the exponential map using Rodrigues' rotation formula: first define map $`[\cdot]_{\times}: \mathbb{R}^3 \to \mathbb{R}^{3\times 3}`$ such that for $`w = [w_1, w_2, w_3]^T`$:
+```math
+[w]_{\times} = \begin{bmatrix}
+    0 & -w_3 & w_2\\
+    w_3 & 0 & -w_1\\
+    -w_2 & w_1 & 0
+\end{bmatrix}
+```
+Then the exponential map:
+```math
+\exp([w]_{\times}) = I + \frac{\sin(|w|)}{|w|} [w]_{\times} + \frac{1 - \cos(|w|)}{|w|^2} [w]_{\times}^2
+```
+Notice that although the exponential is continuous at $`w = 0`$, the numerical instability should be considered here (e.g. using smooth strategy or conditional operator in ufl_expr). Then we just replace the isometry constraint with $`\nabla y = \exp([w]_{\times}) R`$ where
+``` math
+R = \begin{bmatrix}
+    1 & 0 \\
+    0 & 1 \\
+    0 & 0
+\end{bmatrix}
+```
 
 ## 5-min Tutorial
 Here we use the example from `examples/mobius.py` to show the whole process of solving. You could also directly test this example with default setting by
