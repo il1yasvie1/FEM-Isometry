@@ -55,7 +55,7 @@ In [Bonito et al. (2020)](#bonito2020), the author(s) derived that the strong fo
 3. interior penalty methods, e.g. $`C^0`$ or Discontinuous Lagrange elements.
 4. mixed formulation on two Poisson's equations. We have not explored this approach.
 
-We mainly develop the theory for $`C^0`$-interior penalty method which use Lagrange elements with degree at least 2.
+We mainly develop the theory for $`C^0`$-interior penalty method which use Lagrange elements with degree at least 2. Other elements adapt the discrete energy as the jump terms would be 0.
 
 We implement the exponential map using Rodrigues' rotation formula: first define map $`[\cdot]_{\times}: \mathbb{R}^3 \to \mathbb{R}^{3\times 3}`$ such that for $`w = [w_1, w_2, w_3]^T`$:
 ```math
@@ -76,6 +76,11 @@ R = \begin{bmatrix}
     0 & 1 \\
     0 & 0
 \end{bmatrix}
+```
+
+Finally, we use the Lagrange multiplier to get the inf-sup problem:
+```math
+\inf_{y\in [H^2(\Omega)]^3, w \in [H^1(\Omega)]^3} \sup_{p \in [L^2(\Omega)]^{3\times 2}} \frac{1}{2}\|D^2 y\|^2_{L^2} - (f, y)_{L^2} + (p, \nabla y - \exp[w]_\times R)_{L^2}
 ```
 
 ## 5-min Tutorial
